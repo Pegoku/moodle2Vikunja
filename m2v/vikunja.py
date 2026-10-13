@@ -55,3 +55,6 @@ class Vikunja:
 
     def add_label(self, task_id: int, label_id: int) -> None:
         self._req("PUT", f"/tasks/{task_id}/labels", json={"label_id": label_id})
+
+    def remove_label(self, task_id: int, label_id: int) -> None:
+        self._req("DELETE", f"/tasks/{task_id}/labels/{label_id}")

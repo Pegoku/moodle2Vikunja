@@ -88,9 +88,10 @@ def add_months(d: date, months: int) -> date:
 
 
 class Syncer:
-    def __init__(self, cfg: Config, dry_run: bool = False):
+    def __init__(self, cfg: Config, dry_run: bool = False, recategorize: bool = False):
         self.cfg = cfg
         self.dry = dry_run
+        self.recategorize = recategorize
         self.stats = dict(created=0, updated=0, done=0, deleted=0, restored=0, categorized=0)
 
     def run(self) -> dict:
@@ -202,7 +203,10 @@ class Syncer:
         return self.moodle.activity_state(ev["url"]).done
 
     def categorize(self, events: dict[int, dict]) -> None:
-        """Give every task without a category label one, picked by the AI model."""
+        """Give every task without a category label one, picked by the AI model.
+
+        With recategorize set, every task is classified again and relabelled.
+        """
         categories = {l["title"]: l for l in self.label_cache.values()
                       if CATEGORY_MARKER in (l.get("description") or "")}
         todo = []
@@ -210,7 +214,7 @@ class Syncer:
             m = MARKER_RE.search(t.get("description") or "")
             if not m or STRIKE in t["title"]:
                 continue
-            if any(l["title"] in categories for l in t.get("labels") or []):
+            if not self.recategorize and any(l["title"] in categories for l in t.get("labels") or []):
                 continue
             todo.append((int(m.group(1)), t))
         if not todo:
@@ -229,9 +233,16 @@ class Syncer:
             if not res:
                 continue
             label = self.category_label(res["category"].strip(), categories)
+            current = [l for l in task.get("labels") or [] if l["title"] in categories]
+            if task.get("priority") == res["priority"] and [l["id"] for l in current] == [label["id"]]:
+                continue
             if task.get("priority") != res["priority"]:
                 self.vik.update_task({**task, "priority": res["priority"]})
-            self.vik.add_label(task["id"], label["id"])
+            for old in current:
+                if old["id"] != label["id"]:
+                    self.vik.remove_label(task["id"], old["id"])
+            if label["id"] not in [l["id"] for l in current]:
+                self.vik.add_label(task["id"], label["id"])
             log.info("categorize %s -> %s (priority %d)", task["title"], label["title"], res["priority"])
             self.stats["categorized"] += 1
 

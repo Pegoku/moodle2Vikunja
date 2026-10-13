@@ -27,7 +27,16 @@ For every item return:
   3 = quizzes and exams
   2 = video calls, live classes, tutoring sessions, other things to attend
   1 = informational dates (delivery period opens/closes, course start, holidays, quiz opening)
-Hand-in tasks are the most important things; everything else ranks below them."""
+Hand-in tasks are the most important things; everything else ranks below them.
+
+Use the module and event_type fields, they are reliable:
+- module "assign" is a hand-in task (priority 4).
+- module "quiz" with event_type "close" is the quiz deadline (priority 3);
+  event_type "open" only says when it opens (priority 1).
+- Items without a module are course calendar entries. "Inici"/"Finalització"/"Inicio"/
+  "Fin" of a "lliurament"/"entrega" marks a delivery period starting or ending: that
+  is an informational date (priority 1), not a hand-in task.
+Classify identical kinds of items identically."""
 
 SCHEMA = {
     "type": "object",

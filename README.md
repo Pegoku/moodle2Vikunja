@@ -39,6 +39,8 @@ includes the categories already in use, so the model reuses them instead of
 creating new ones each time. `AI_CATEGORIES` seeds the list on the first run.
 Tasks are classified once; a task is only sent again if you remove its
 category label. Priorities you change by hand are kept.
+`python -m m2v --recategorize` classifies every task again (and overwrites
+priorities), e.g. after changing the model or `AI_CATEGORIES`.
 
 ## Setup
 

@@ -11,6 +11,7 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="m2v", description="Sync Moodle deadlines into Vikunja.")
     p.add_argument("--env", default=".env", help="path to a .env file (default: .env)")
     p.add_argument("--dry-run", action="store_true", help="show what would change without writing to Vikunja")
+    p.add_argument("--recategorize", action="store_true", help="ask the AI to classify every task again")
     p.add_argument("--loop", type=float, metavar="MINUTES", help="keep running, syncing every MINUTES")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()
@@ -24,7 +25,7 @@ def main() -> None:
 
     while True:
         try:
-            Syncer(cfg, dry_run=args.dry_run).run()
+            Syncer(cfg, dry_run=args.dry_run, recategorize=args.recategorize).run()
         except Exception:
             if not args.loop:
                 raise
