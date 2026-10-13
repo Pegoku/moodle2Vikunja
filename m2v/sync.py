@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 
 from .classify import CATEGORY_MARKER, Classifier, describe
 from .config import Config
+from .courses import abbreviate, course_labels
 from .moodle import Moodle
 from .vikunja import Vikunja
 
@@ -14,6 +15,7 @@ log = logging.getLogger("m2v")
 MARKER_RE = re.compile(r"moodle-event:(\d+):([0-9a-f]+)")
 STRIKE = "̶"
 NULL_DATE = "0001-01-01T00:00:00Z"
+COURSE_MARKER = "m2v:course"
 
 
 def strike(text: str) -> str:
@@ -92,7 +94,7 @@ class Syncer:
         self.cfg = cfg
         self.dry = dry_run
         self.recategorize = recategorize
-        self.stats = dict(created=0, updated=0, done=0, deleted=0, restored=0, categorized=0)
+        self.stats = dict(created=0, updated=0, done=0, deleted=0, restored=0, relabelled=0, categorized=0)
 
     def run(self) -> dict:
         cfg = self.cfg
@@ -119,6 +121,10 @@ class Syncer:
                 tracked[int(m.group(1))] = t
         log.info("vikunja: %d tracked tasks in project %r", len(tracked), cfg.vikunja_project)
         self.label_cache = vik.labels()
+        courses = moodle.courses()
+        self.course_names = course_labels(courses)
+        # Earlier versions labelled tasks with the course short name (GS_0369).
+        self.legacy_course_labels = {c["shortname"] for c in courses}
 
         for eid, ev in sorted(events.items(), key=lambda kv: kv[1]["timestart"]):
             self.sync_event(ev, tracked.get(eid), pending=eid in pending)
@@ -156,7 +162,7 @@ class Syncer:
             if self.dry:
                 return
             created = self.vik.create_task(self.project_id, task)
-            self.label(created, ev)
+            self.course_label(created, ev)
             return
 
         changed = False
@@ -175,6 +181,8 @@ class Syncer:
             changed = True
         if changed and not self.dry:
             self.vik.update_task(task)
+        if not self.dry:
+            self.course_label(task, ev)
 
     def handle_missing(self, task: dict) -> None:
         """The event vanished from Moodle: either it was completed or deleted."""
@@ -257,13 +265,26 @@ class Syncer:
         self.label_cache[label["title"]] = label
         return label
 
-    def label(self, task: dict, ev: dict) -> None:
+    def course_label(self, task: dict, ev: dict) -> None:
+        """Make sure the task carries its course's short-name label and no other course label."""
         course = ev.get("course") or {}
-        name = course.get("shortname")
-        if not name:
+        if not course:
             return
-        label = self.label_cache.get(name)
+        name = self.course_names.get(course["id"]) or abbreviate(course["fullname"])
+        current = [l for l in task.get("labels") or []
+                   if COURSE_MARKER in (l.get("description") or "") or l["title"] in self.legacy_course_labels]
+        if [l["title"] for l in current] == [name]:
+            return
+        label = next((l for l in self.label_cache.values()
+                      if l["title"] == name and COURSE_MARKER in (l.get("description") or "")), None)
         if label is None:
-            label = self.vik.create_label(name, label_color(name))
-            self.label_cache[name] = label
-        self.vik.add_label(task["id"], label["id"])
+            label = self.vik.create_label(name, label_color(name), f"{course['fullname']}\n\n{COURSE_MARKER}")
+            self.label_cache[label["title"]] = label
+        for old in current:
+            if old["id"] != label["id"]:
+                self.vik.remove_label(task["id"], old["id"])
+        if label["id"] not in [l["id"] for l in current]:
+            self.vik.add_label(task["id"], label["id"])
+        if current:
+            log.info("relabel %s -> %s", task["title"], name)
+            self.stats["relabelled"] += 1

@@ -14,6 +14,11 @@ events, video classes, ...) into a Vikunja project.
 - **Submitted**: when you hand in an assignment, finish a quiz or complete an
   activity, the task is marked as done.
 
+Course labels are short forms of the course name: the initials of its
+meaningful words, keeping Roman numerals and existing acronyms
+("Itinerari personal per a l'ocupabilitat I" -> `IPO I`, "Implantació de
+sistemes operatius" -> `ISO`). The full name is in the label description.
+
 Works with Moodle sites that have the mobile web service disabled: it logs in
 like a browser and uses Moodle's AJAX endpoint plus the activity pages.
 
