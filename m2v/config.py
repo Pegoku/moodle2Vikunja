@@ -30,6 +30,10 @@ class Config:
     vikunja_project: str
     lookback_months: int
     lookahead_months: int
+    openai_api_key: str
+    openai_model: str
+    openai_base_url: str
+    categories: list[str]
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -50,6 +54,11 @@ class Config:
             vikunja_project=os.environ.get("VIKUNJA_PROJECT", "Moodle").strip() or "Moodle",
             lookback_months=int(os.environ.get("LOOKBACK_MONTHS", "3")),
             lookahead_months=int(os.environ.get("LOOKAHEAD_MONTHS", "12")),
+            openai_api_key=os.environ.get("OPENAI_API_KEY", "").strip(),
+            openai_model=os.environ.get("OPENAI_MODEL", "gpt-6-luna").strip() or "gpt-6-luna",
+            openai_base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").strip(),
+            categories=[c.strip() for c in os.environ.get(
+                "AI_CATEGORIES", "Task,Quiz,Exam,Video Call,Milestone").split(",") if c.strip()],
         )
         if not cfg.vikunja_token and not (cfg.vikunja_username and cfg.vikunja_password):
             raise SystemExit("set VIKUNJA_TOKEN or VIKUNJA_USERNAME + VIKUNJA_PASSWORD")

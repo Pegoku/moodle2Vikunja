@@ -4,6 +4,7 @@ import logging
 import re
 from datetime import date, datetime, timezone
 
+from .classify import CATEGORY_MARKER, Classifier, describe
 from .config import Config
 from .moodle import Moodle
 from .vikunja import Vikunja
@@ -90,7 +91,7 @@ class Syncer:
     def __init__(self, cfg: Config, dry_run: bool = False):
         self.cfg = cfg
         self.dry = dry_run
-        self.stats = dict(created=0, updated=0, done=0, deleted=0, restored=0)
+        self.stats = dict(created=0, updated=0, done=0, deleted=0, restored=0, categorized=0)
 
     def run(self) -> dict:
         cfg = self.cfg
@@ -132,6 +133,14 @@ class Syncer:
                 self.sync_event(ev, task, pending=False)
             else:
                 self.handle_missing(task)
+
+        if cfg.openai_api_key:
+            try:
+                self.categorize(events)
+            except Exception as exc:  # categories are a nice-to-have; retried next run
+                log.warning("AI categorization failed: %s", exc)
+        else:
+            log.info("OPENAI_API_KEY not set; skipping AI categories")
 
         log.info("done: %s", ", ".join(f"{k}={v}" for k, v in self.stats.items()))
         return self.stats
@@ -191,6 +200,51 @@ class Syncer:
         if "/mod/" not in ev["url"]:
             return False
         return self.moodle.activity_state(ev["url"]).done
+
+    def categorize(self, events: dict[int, dict]) -> None:
+        """Give every task without a category label one, picked by the AI model."""
+        categories = {l["title"]: l for l in self.label_cache.values()
+                      if CATEGORY_MARKER in (l.get("description") or "")}
+        todo = []
+        for t in self.vik.tasks(self.project_id):
+            m = MARKER_RE.search(t.get("description") or "")
+            if not m or STRIKE in t["title"]:
+                continue
+            if any(l["title"] in categories for l in t.get("labels") or []):
+                continue
+            todo.append((int(m.group(1)), t))
+        if not todo:
+            return
+        log.info("categorizing %d tasks with %s", len(todo), self.cfg.openai_model)
+        if self.dry:
+            return
+
+        used = {c.casefold() for c in categories}
+        known = list(categories) + [c for c in self.cfg.categories if c.casefold() not in used]
+        classifier = Classifier(self.cfg.openai_api_key, self.cfg.openai_model, self.cfg.openai_base_url)
+        results = classifier.classify([describe(eid, events.get(eid), t["title"]) for eid, t in todo], known)
+
+        for eid, task in todo:
+            res = results.get(eid)
+            if not res:
+                continue
+            label = self.category_label(res["category"].strip(), categories)
+            if task.get("priority") != res["priority"]:
+                self.vik.update_task({**task, "priority": res["priority"]})
+            self.vik.add_label(task["id"], label["id"])
+            log.info("categorize %s -> %s (priority %d)", task["title"], label["title"], res["priority"])
+            self.stats["categorized"] += 1
+
+    def category_label(self, name: str, categories: dict[str, dict]) -> dict:
+        for title, label in categories.items():
+            if title.casefold() == name.casefold():
+                return label
+        # Use the configured spelling for suggested categories ("task" -> "Task").
+        name = next((c for c in self.cfg.categories if c.casefold() == name.casefold()), name)
+        label = self.vik.create_label(name, label_color(name), CATEGORY_MARKER)
+        categories[label["title"]] = label
+        self.label_cache[label["title"]] = label
+        return label
 
     def label(self, task: dict, ev: dict) -> None:
         course = ev.get("course") or {}

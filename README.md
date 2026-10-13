@@ -21,6 +21,25 @@ No local state is kept: each task carries a `moodle-event:<id>:<hash>` marker at
 the end of its description, which is how the tool finds it again. Don't remove
 that line.
 
+## AI categories and priorities
+
+With `OPENAI_API_KEY` set, each new task is sent to an OpenAI model
+(`OPENAI_MODEL`, default `gpt-6-luna`), which picks a category label and a
+priority:
+
+| Priority | What |
+|----------|------|
+| 4 (urgent) | graded work to hand in (assignments, tasks) |
+| 3 (high) | quizzes and exams |
+| 2 (medium) | video calls, live classes, sessions to attend |
+| 1 (low) | informational dates (period start/end, quiz opening, ...) |
+
+Category labels are created with the description `m2v:category`. Every request
+includes the categories already in use, so the model reuses them instead of
+creating new ones each time. `AI_CATEGORIES` seeds the list on the first run.
+Tasks are classified once; a task is only sent again if you remove its
+category label. Priorities you change by hand are kept.
+
 ## Setup
 
 ```sh

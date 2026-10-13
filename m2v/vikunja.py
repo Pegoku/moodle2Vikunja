@@ -50,8 +50,8 @@ class Vikunja:
     def labels(self) -> dict[str, dict]:
         return {l["title"]: l for l in self._paged("/labels")}
 
-    def create_label(self, title: str, color: str) -> dict:
-        return self._req("PUT", "/labels", json={"title": title, "hex_color": color}).json()
+    def create_label(self, title: str, color: str, description: str = "") -> dict:
+        return self._req("PUT", "/labels", json={"title": title, "hex_color": color, "description": description}).json()
 
     def add_label(self, task_id: int, label_id: int) -> None:
         self._req("PUT", f"/tasks/{task_id}/labels", json={"label_id": label_id})
