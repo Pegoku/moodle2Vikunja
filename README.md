@@ -13,6 +13,9 @@ events, video classes, ...) into a Vikunja project.
   through (t̶h̶i̶s̶ ̶w̶a̶y̶) and a note is added. If it comes back, it is restored.
 - **Submitted**: when you hand in an assignment, finish a quiz or complete an
   activity, the task is marked as done.
+- **Graded**: once a grade shows up in your Moodle grade report, it is added
+  at the top of the task description with its range and the teacher's
+  feedback, and the task is marked as done.
 
 Course labels are short forms of the course name: the initials of its
 meaningful words, keeping Roman numerals and existing acronyms
@@ -89,6 +92,7 @@ docker run -d --restart unless-stopped --env-file .env moodle2vikunja
 | Assignment | submission status is *Submitted* |
 | Quiz | a finished attempt exists |
 | Anything else | all completion conditions met, or marked done manually in Moodle |
+| Any graded activity | it has a grade in the user grade report |
 
 Course/site events (video classes, term start/end, ...) have nothing to submit,
 so they are never marked done automatically.

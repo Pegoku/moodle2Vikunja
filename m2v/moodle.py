@@ -6,6 +6,7 @@ that Moodle's own JavaScript uses. Only AJAX-enabled functions are available
 there, which is why submission status is read from the activity pages.
 """
 
+import html
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -23,6 +24,13 @@ class MoodleError(Exception):
 class ActivityState:
     exists: bool
     done: bool
+
+
+@dataclass
+class Grade:
+    grade: str
+    range: str
+    feedback: str
 
 
 class Moodle:
@@ -127,6 +135,42 @@ class Moodle:
             state = ActivityState(exists=True, done=_page_done(modname, r.text))
         self._activity_cache[key] = state
         return state
+
+    def grades(self, course_id: int) -> dict[str, Grade]:
+        """Graded activities of a course from the user grade report, keyed by "modname:cmid".
+
+        The grade report web services aren't AJAX-enabled, so this scrapes the page.
+        """
+        r = self.s.get(f"{self.base}/grade/report/user/index.php", params={"id": course_id}, timeout=60)
+        if r.status_code == 404:  # course without a grade book (e.g. tutoring spaces)
+            return {}
+        r.raise_for_status()
+        page = r.text
+        cells: dict[tuple[str, str], str] = {}
+        for row, column, body in re.findall(
+                r'<td[^>]*headers="[^"]*\brow_(\d+)_\d+ (grade|range|feedback)\d+"[^>]*>(.*?)</td>', page, re.S):
+            cells[(row, column)] = _text(body)
+        found: dict[str, Grade] = {}
+        for row, modname, cmid in re.findall(
+                r'id="row_(\d+)_\d+"[^>]*>.*?href="[^"]*/mod/(\w+)/view\.php\?id=(\d+)"', page):
+            grade = cells.get((row, "grade"), "")
+            if grade and grade != "-":
+                found[f"{modname}:{cmid}"] = Grade(grade, cells.get((row, "range"), ""),
+                                                   cells.get((row, "feedback"), ""))
+        return found
+
+
+def activity_key(url: str) -> str | None:
+    m = re.search(r"/mod/(\w+)/view\.php\?id=(\d+)", url or "")
+    return f"{m.group(1)}:{m.group(2)}" if m else None
+
+
+def _text(fragment: str) -> str:
+    """Visible text of an HTML table cell, dropping action menus."""
+    fragment = re.sub(r'<div class="action-menu.*', "", fragment, flags=re.S)
+    fragment = re.sub(r"<br\s*/?>|</p>", "\n", fragment)
+    text = html.unescape(re.sub(r"<[^>]+>", "", fragment))
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
 _FINISHED_WORDS = re.compile(r"\b(Acabat|Finished|Finalizado|Terminado|Beendet|Terminé)\b")

@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 from .classify import CATEGORY_MARKER, Classifier, describe
 from .config import Config
 from .courses import abbreviate, course_labels
-from .moodle import Moodle
+from .moodle import Grade, Moodle, MoodleError, activity_key
 from .vikunja import Vikunja
 
 log = logging.getLogger("m2v")
@@ -44,11 +44,23 @@ def link(url: str, text: str) -> str:
     return f'<a href="{html.escape(url, quote=True)}">{html.escape(text)}</a>'
 
 
-def render(ev: dict) -> dict:
+def render_grade(grade: Grade) -> str:
+    out = f"<p><strong>Grade:</strong> {html.escape(grade.grade)}"
+    if grade.range:
+        out += f" <em>({html.escape(grade.range)})</em>"
+    out += "</p>"
+    if grade.feedback:
+        out += f"<blockquote>{html.escape(grade.feedback).replace(chr(10), '<br>')}</blockquote>"
+    return out
+
+
+def render(ev: dict, grade: Grade | None = None) -> dict:
     """Build the Vikunja task fields for a Moodle event (without the marker)."""
     course = ev.get("course") or {}
     action = ev.get("action") or {}
     parts = []
+    if grade:
+        parts.append(render_grade(grade))
     if course:
         parts.append(f"<p><strong>Course:</strong> {link(course['viewurl'], course['fullname'])}</p>")
     if ev.get("url"):
@@ -94,7 +106,7 @@ class Syncer:
         self.cfg = cfg
         self.dry = dry_run
         self.recategorize = recategorize
-        self.stats = dict(created=0, updated=0, done=0, deleted=0, restored=0, relabelled=0, categorized=0)
+        self.stats = dict(created=0, updated=0, done=0, graded=0, deleted=0, restored=0, relabelled=0, categorized=0)
 
     def run(self) -> dict:
         cfg = self.cfg
@@ -125,6 +137,13 @@ class Syncer:
         self.course_names = course_labels(courses)
         # Earlier versions labelled tasks with the course short name (GS_0369).
         self.legacy_course_labels = {c["shortname"] for c in courses}
+        self.grades: dict[str, Grade] = {}
+        for c in courses:
+            try:
+                self.grades.update(moodle.grades(c["id"]))
+            except (MoodleError, OSError) as exc:  # grades are extra; the sync goes on without them
+                log.warning("grades for %s: %s", c["shortname"], exc)
+        log.info("moodle: %d graded activities", len(self.grades))
 
         for eid, ev in sorted(events.items(), key=lambda kv: kv[1]["timestart"]):
             self.sync_event(ev, tracked.get(eid), pending=eid in pending)
@@ -153,7 +172,8 @@ class Syncer:
         return self.stats
 
     def sync_event(self, ev: dict, task: dict | None, pending: bool) -> None:
-        fields = render(ev)
+        grade = self.grades.get(activity_key(ev.get("url")))
+        fields = render(ev, grade)
         if task is None:
             task = with_marker(fields, ev["id"])
             task["done"] = self.is_done(ev, pending)
@@ -170,6 +190,9 @@ class Syncer:
         if STRIKE in task["title"] or not m or m.group(2) != fingerprint(fields):
             if STRIKE in task["title"]:
                 self.stats["restored"] += 1
+            if grade and render_grade(grade) not in (task.get("description") or ""):
+                log.info("grade %s: %s", fields["title"], grade.grade)
+                self.stats["graded"] += 1
             task = {**task, **with_marker(fields, ev["id"])}
             log.info("update %s", task["title"])
             self.stats["updated"] += 1
@@ -208,6 +231,8 @@ class Syncer:
             return False
         if "/mod/" not in ev["url"]:
             return False
+        if activity_key(ev["url"]) in self.grades:
+            return True
         return self.moodle.activity_state(ev["url"]).done
 
     def categorize(self, events: dict[int, dict]) -> None:
