@@ -1,0 +1,9 @@
+services:
+  moodle2vikunja:
+    image: ghcr.io/pegoku/moodle2vikunja:latest
+    container_name: moodle2vikunja
+    command: ["--loop", "30"]
+    env_file: .env
+    environment:
+      - TZ=Europe/Madrid
+    restart: unless-stopped

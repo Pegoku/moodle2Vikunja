@@ -68,6 +68,15 @@ over `.env`).
 
 ### Docker
 
+Every push to GitHub builds `ghcr.io/pegoku/moodle2vikunja` (`latest` follows
+`main`). With a filled-in `.env` next to `docker-compose.yml`:
+
+```sh
+docker compose up -d
+```
+
+Or build it locally:
+
 ```sh
 docker build -t moodle2vikunja .
 docker run -d --restart unless-stopped --env-file .env moodle2vikunja
