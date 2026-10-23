@@ -97,8 +97,13 @@ def render(ev: dict, grade: Grade | None = None, opens: int | None = None) -> di
     return fields
 
 
+# Moodle gives embedded players a fresh uniqid() on every page load (id_videojs_6adba77742471_1).
+UNIQID_RE = re.compile(r'(\bid="[^"]*?)[0-9a-f]{13}')
+
+
 def fingerprint(fields: dict) -> str:
     raw = "\x1f".join(str(fields[k]) for k in sorted(fields))
+    raw = UNIQID_RE.sub(r"\1", raw)
     return hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 
