@@ -54,7 +54,17 @@ def render_grade(grade: Grade) -> str:
     return out
 
 
-def render(ev: dict, grade: Grade | None = None) -> dict:
+def opening_key(ev: dict) -> tuple[str, int] | None:
+    return (ev["modulename"], ev["instance"]) if ev.get("modulename") and ev.get("instance") else None
+
+
+def is_opening(ev: dict) -> bool:
+    # "Quiz opens" style events only announce when an activity becomes available;
+    # the real deadline is the matching "close" event.
+    return ev.get("eventtype") == "open" and opening_key(ev) is not None
+
+
+def render(ev: dict, grade: Grade | None = None, opens: int | None = None) -> dict:
     """Build the Vikunja task fields for a Moodle event (without the marker)."""
     course = ev.get("course") or {}
     action = ev.get("action") or {}
@@ -82,6 +92,8 @@ def render(ev: dict, grade: Grade | None = None) -> dict:
     if ev.get("timeduration"):
         fields["start_date"] = iso(ev["timestart"])
         fields["end_date"] = iso(ev["timestart"] + ev["timeduration"])
+    elif opens and opens < ev["timestart"]:
+        fields["start_date"] = iso(opens)
     return fields
 
 
@@ -106,7 +118,8 @@ class Syncer:
         self.cfg = cfg
         self.dry = dry_run
         self.recategorize = recategorize
-        self.stats = dict(created=0, updated=0, done=0, graded=0, deleted=0, restored=0, relabelled=0, categorized=0)
+        self.stats = dict(created=0, updated=0, done=0, graded=0, deleted=0, restored=0, relabelled=0, categorized=0,
+                          dropped=0)
 
     def run(self) -> dict:
         cfg = self.cfg
@@ -124,6 +137,9 @@ class Syncer:
         # Pending action events carry the action link; prefer them over the calendar copy.
         events.update(pending)
         log.info("moodle: %d events (%d pending actions)", len(events), len(pending))
+        openings = {eid: ev for eid, ev in events.items() if is_opening(ev)}
+        self.opens = {opening_key(ev): ev["timestart"] for ev in openings.values()}
+        events = {eid: ev for eid, ev in events.items() if eid not in openings}
 
         self.project_id = vik.ensure_project(cfg.vikunja_project)
         tracked: dict[int, dict] = {}
@@ -149,13 +165,18 @@ class Syncer:
             self.sync_event(ev, tracked.get(eid), pending=eid in pending)
 
         for eid, task in tracked.items():
+            if eid in openings:
+                self.drop(task)
+                continue
             if eid in events or task["done"] or STRIKE in task["title"]:
                 continue
             due = parse_iso(task.get("due_date"))
             if due is not None and due < window_start:
                 continue  # outside the window we fetched; leave it alone
             ev = moodle.event_by_id(eid)
-            if ev:
+            if ev and is_opening(ev):
+                self.drop(task)
+            elif ev:
                 self.sync_event(ev, task, pending=False)
             else:
                 self.handle_missing(task)
@@ -173,7 +194,7 @@ class Syncer:
 
     def sync_event(self, ev: dict, task: dict | None, pending: bool) -> None:
         grade = self.grades.get(activity_key(ev.get("url")))
-        fields = render(ev, grade)
+        fields = render(ev, grade, self.opens.get(opening_key(ev)) if ev.get("eventtype") == "close" else None)
         if task is None:
             task = with_marker(fields, ev["id"])
             task["done"] = self.is_done(ev, pending)
@@ -206,6 +227,13 @@ class Syncer:
             self.vik.update_task(task)
         if not self.dry:
             self.course_label(task, ev)
+
+    def drop(self, task: dict) -> None:
+        """Delete a task made by an earlier version for an event that is no longer synced."""
+        log.info("drop %s", task["title"])
+        self.stats["dropped"] += 1
+        if not self.dry:
+            self.vik.delete_task(task["id"])
 
     def handle_missing(self, task: dict) -> None:
         """The event vanished from Moodle: either it was completed or deleted."""

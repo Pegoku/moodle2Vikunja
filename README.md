@@ -6,6 +6,9 @@ events, video classes, ...) into a Vikunja project.
 - **Created**: every Moodle calendar event in the sync window becomes a Vikunja
   task with its due date, a label for the course, and links to the course, the
   activity, the submission page and the calendar entry.
+  "Opens" events (e.g. "Se abre Qüestionari ...") don't get their own task:
+  the opening time becomes the start date of the matching "closes" task, which
+  is the real deadline.
 - **Modified**: when the event changes in Moodle (name, date, description) the
   task is updated. Unchanged tasks are left alone, so your own edits stick
   until Moodle changes the event.
@@ -40,7 +43,7 @@ priority:
 | 4 (urgent) | graded work to hand in (assignments, tasks) |
 | 3 (high) | quizzes and exams |
 | 2 (medium) | video calls, live classes, sessions to attend |
-| 1 (low) | informational dates (period start/end, quiz opening, ...) |
+| 1 (low) | informational dates (delivery period start/end, ...) |
 
 Category labels are created with the description `m2v:category`. Every request
 includes the categories already in use, so the model reuses them instead of

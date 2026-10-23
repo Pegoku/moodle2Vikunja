@@ -47,6 +47,9 @@ class Vikunja:
         # Vikunja replaces the whole task on update, so always send the full object.
         return self._req("POST", f"/tasks/{task['id']}", json=task).json()
 
+    def delete_task(self, task_id: int) -> None:
+        self._req("DELETE", f"/tasks/{task_id}")
+
     def labels(self) -> dict[str, dict]:
         return {l["title"]: l for l in self._paged("/labels")}
 
